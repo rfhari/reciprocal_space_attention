@@ -26,20 +26,43 @@ class RSA_MACE(nn.Module):
         self.tp = o3.FullyConnectedTensorProduct(
             node_irreps_after_interaction, o3.Irreps(f"{self.hidden}x0e"), node_irreps_after_interaction,
         )
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.cached_kvecs = torch.load("./custom_dataset/bc_water_dataset/kvec_cache_bulk_water.pt", map_location=device)
+        self.topk = 6
 
-    def _rope(self, h:torch.Tensor, pos:torch.Tensor, box:torch.Tensor) -> torch.Tensor:
-        a, b = h[..., 0::2], h[..., 1::2]                    # (N,H/2)
-        mu, factors = self.kspace_freq(pos, box)                    # (N_k,3)
+    def _rope(self, 
+              h:torch.Tensor, 
+              pos:torch.Tensor, 
+              box:torch.Tensor) -> torch.Tensor:
+
+        box_key = tuple(round(x, 8) for x in box.double().tolist())
+
+        try:
+            cached_kvecs = self.cached_kvecs[box_key]["kvecs"]
+        except:
+            raise KeyError(f"Box key {box_key} not found in cache")
+  
+        mu, factors = cached_kvecs[:self.topk], torch.ones_like(cached_kvecs[:self.topk,0])  # (M,3)        
+        # mu, factors = self.kspace_freq(pos, box)                    # (N_k,3)
 
         phase = torch.matmul(pos, mu.T)                        # (N,M)
         phase = phase[...,None]                               # (N,N_k,H/2)
         phase = phase.permute(1,0,2)                          # (N_k,N,H/2)
 
         cos, sin = phase.cos(), phase.sin()
+
+        a, b = h[..., 0::2], h[..., 1::2]                    # (N,H/2)
         a0, b0 = a.unsqueeze(0), b.unsqueeze(0) 
         rot_a =  a0*cos - b0*sin
         rot_b =  a0*sin + b0*cos
         
+        # h = h.unsqueeze(0)
+        # y = torch.stack((-h[..., 1::2], h[..., ::2]), dim=-1).reshape_as(h)
+        # out = h * cos + y * sin
+        # print(f"h: {h.shape}, y: {y.shape}, out: {out.shape}")
+
+        # return out, factors             # (M,N,H)
+
         return torch.cat([rot_a, rot_b], dim=-1), factors             # (N_k,N,H)
 
     def _rope_graphwise(self,
