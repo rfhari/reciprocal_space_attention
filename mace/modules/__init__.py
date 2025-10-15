@@ -31,6 +31,8 @@ from .loss import (
     WeightedHuberEnergyForcesStressLoss,
 )
 from .models import MACE, AtomicDipolesMACE, EnergyDipolesMACE, ScaleShiftMACE
+from .fourier_efa import FourierEFA_MACE
+from .k_frequencies_triclinic import  EwaldPotentialTriclinic
 from .radial import BesselBasis, GaussianBasis, PolynomialCutoff, ZBLBasis
 from .symmetric_contraction import SymmetricContraction
 from .utils import (

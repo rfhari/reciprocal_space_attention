@@ -14,7 +14,7 @@ from e3nn.util.jit import compile_mode
 
 from mace.modules.radial import ZBLBasis
 from mace.tools.scatter import scatter_sum
-from mace.modules.rsa_attention import RSA_MACE
+from mace.modules.rsa import ReciprocalSpaceAttention
 
 from .blocks import (
     AtomicEnergiesBlock,
@@ -81,6 +81,8 @@ class MACE(torch.nn.Module):
             correlation = [correlation] * num_interactions
         self.lammps_mliap = lammps_mliap
         self.silu = nn.SiLU()
+        self.sigmoid = nn.Sigmoid()
+        self.alpha_lr_sr = nn.Parameter(torch.tensor(0.0, dtype=torch.get_default_dtype())) # checkout PR: 1086 
         
         # Embedding
         node_attr_irreps = o3.Irreps([(num_elements, (0, 1))])
@@ -149,31 +151,24 @@ class MACE(torch.nn.Module):
             )
         )
 
-        self.rsa = torch.nn.ModuleList()
+        self.efa = torch.nn.ModuleList()
         
-        # for i in range(num_interactions):
-        #     if i == num_interactions - 1:
-        #         layer_irreps = o3.Irreps(str(hidden_irreps[0]))  
-        #     else:
-        #         layer_irreps = hidden_irreps                     
-        #     print(f"Layer {i} RSA with irreps: {layer_irreps} {o3.Irreps(str(layer_irreps[0]))}")
-        #     self.rsa.append(RSA_MACE(node_irreps=layer_irreps))
-
         for i in range(num_interactions):
             if i == num_interactions - 1:
-                layer_irreps = o3.Irreps(str(hidden_irreps))  
-                layer_irrep_after = o3.Irreps(str(hidden_irreps[0]))
+                layer_irreps = o3.Irreps(str(hidden_irreps[0])) 
             else:
-                layer_irreps = node_feats_irreps
-                layer_irrep_after = hidden_irreps                     
-            print(f"Layer {i} RSA with irreps: {layer_irreps} {layer_irrep_after}")
-            self.rsa.append(RSA_MACE(node_irreps=layer_irreps, node_irreps_after_interaction=layer_irrep_after))
-        
+                layer_irreps = hidden_irreps                     # full irreps
+            self.efa.append(
+                ReciprocalSpaceAttention(node_irreps=layer_irreps,
+                            r_max=r_max,
+                            hidden=None)          
+            )
+
         for i in range(num_interactions - 1):
             if i == num_interactions - 2:
                 hidden_irreps_out = str(
                     hidden_irreps[0]
-                )  # Select only scalars for last layer
+                ) 
             else:
                 hidden_irreps_out = hidden_irreps
             inter = interaction_cls(
@@ -302,22 +297,18 @@ class MACE(torch.nn.Module):
             node_feats = product(
                 node_feats=node_feats, sc=sc, node_attrs=node_attrs_slice
             )
-
-            # node_feats_lr = self.rsa[i][0](
-            #      node_feats_x,                  # (N, F)
-            #      data,
-            # )
-
-            node_feats = self.rsa[i](data, node_feats_x, node_feats)
-            # node_feats = self.silu(self.alpha_lr_sr) * node_feats + self.silu((1 - self.alpha_lr_sr)) * node_feats_lr  # Residual connection
+            node_feats_lr = self.efa[i](
+                 node_feats_x,                  # (N, F)
+                 data,
+            )
+            lr_gate = self.sigmoid(self.alpha_lr_sr) 
+            node_feats = lr_gate * node_feats + (1 - lr_gate) * node_feats_lr  # Residual connection
             node_feats_concat.append(node_feats)
             node_es = readout(node_feats, node_heads)[num_atoms_arange, node_heads]
             energy = scatter_sum(node_es, data["batch"], dim=0, dim_size=num_graphs)
             energies.append(energy)
             node_energies_list.append(node_es)
         
-        # print('alpha is', self.alpha, 'and silu(alpha) is', self.silu(self.alpha))
-
         contributions = torch.stack(energies, dim=-1)
         total_energy = torch.sum(contributions, dim=-1)
         node_energy = torch.sum(torch.stack(node_energies_list, dim=-1), dim=-1)
@@ -378,8 +369,7 @@ class ScaleShiftMACE(MACE):
             scale=atomic_inter_scale, shift=atomic_inter_shift
         )
 
-        self.alpha_lr_sr = torch.nn.Parameter(torch.tensor(0.5, dtype=torch.float64), requires_grad=True)
-        # self.kweights = torch.nn.Parameter(torch.ones(58, dtype=torch.float64), requires_grad=True) # from 30A box, dl=10
+        self.kweights = torch.nn.Parameter(torch.ones(147, dtype=torch.float64), requires_grad=True) 
 
     def forward(
         self,
@@ -467,20 +457,20 @@ class ScaleShiftMACE(MACE):
                 node_feats=node_feats, sc=sc, node_attrs=node_attrs_slice
             )
             
-            # Per layer long-range correction with RSA
-            # node_feats_lr = self.rsa[i](
-            #      data,
-            #      node_feats_x,                  # (N, F)
-            # )
-            # node_feats = self.silu(self.alpha_lr_sr) * node_feats + self.silu((1 - self.alpha_lr_sr)) * node_feats_lr  # Residual connection
-            node_feats = self.rsa[i](data, node_feats_x, node_feats)
-
+            # Per layer EFA
+            node_feats_lr = self.efa[i](
+                 data,
+                 node_feats_x,                  # (N, F)
+                 self.kweights,                 # (Kvectors, )
+            )
+            
+            lr_gate = self.sigmoid(self.alpha_lr_sr) 
+            node_feats = lr_gate * node_feats + (1 - lr_gate) * node_feats_lr  # Residual connection
             node_feats_list.append(node_feats)
             node_es_list.append(
                 readout(node_feats, node_heads)[num_atoms_arange, node_heads]
             )
             
-       
         node_feats_out = torch.cat(node_feats_list, dim=-1)
         node_inter_es = torch.sum(torch.stack(node_es_list, dim=0), dim=0)
         node_inter_es = self.scale_shift(node_inter_es, node_heads)
@@ -502,7 +492,6 @@ class ScaleShiftMACE(MACE):
             compute_hessian=compute_hessian,
             compute_edge_forces=compute_edge_forces or compute_atomic_stresses,
         )
-
 
         atomic_virials: Optional[torch.Tensor] = None
         atomic_stresses: Optional[torch.Tensor] = None

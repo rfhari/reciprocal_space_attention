@@ -424,10 +424,10 @@ def take_step(
         "time": time.time() - start_time,
     }
     
-    # print(f"alpha_lr_sr: {model.alpha_lr_sr.item()}")
-    # print(f"kweights mean: {model.kweights.mean().item()}")
-    # for name, param in model.named_parameters():
-    #     print(f"{name}: requires_grad={param.requires_grad}")
+    print(f"alpha_lr_sr: {model.alpha_lr_sr.item()}")
+    print(f"kweights mean: {model.kweights.mean().item()}")
+    for name, param in model.named_parameters():
+        print(f"{name}: requires_grad={param.requires_grad}")
     
     return loss, loss_dict
 

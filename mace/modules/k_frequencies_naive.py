@@ -3,15 +3,14 @@ import torch.nn as nn
 from itertools import product
 from typing import Dict
 import numpy as np
-from torch.nn import functional as F
-
-# reference implementation: https://github.com/Allen-Tildesley/examples
+# from line_profiler import profile
 
 class EwaldPotential(nn.Module):
     def __init__(self,
-                 dl=10.0,    # grid resolution
+                 dl=10.0,     # grid resolution
                  sigma=5.0,  # width of the Gaussian on each atom
                 ):
+        
         super().__init__()
         self.dl = dl
         self.sigma = sigma
@@ -19,7 +18,6 @@ class EwaldPotential(nn.Module):
         self.twopi = 2.0 * torch.pi
         self.twopi_sq = self.twopi ** 2
         self.k_sq_max = (self.twopi / self.dl) ** 2
-        self.topk_select = 6 # number of k-vectors to select
         
     def forward(self, r_raw, box):
         device = r_raw.device
@@ -28,7 +26,7 @@ class EwaldPotential(nn.Module):
 
         nk  = torch.clamp((box / self.dl).int(), min=1)            
 
-        kx = torch.arange(-nk[0], nk[0] + 1, device=device)
+        kx = torch.arange(nk[0] + 1, device=device)
         ky = torch.arange(-nk[1], nk[1] + 1, device=device)
         kz = torch.arange(-nk[2], nk[2] + 1, device=device)
 
@@ -66,12 +64,45 @@ class EwaldPotential(nn.Module):
         volume = box.prod()      # orthogonal box only    
         
         factor = torch.full_like(k_sq_sel, self.twopi, dtype=box.dtype) 
+        # factor /= volume                                                
         factor *= torch.exp(-self.sigma_sq_half * k_sq_sel) / k_sq_sel
 
-        sorted_idx = torch.argsort(k_sq_sel)
-        topk = sorted_idx[:self.topk_select]  # Select top-k indices
-        kvec_sel = kvec_sel[topk]
-        factor   = factor[topk]
-        k_sq_sel = k_sq_sel[topk]
+        factor_ones = torch.ones_like(factor, dtype=box.dtype)
+
+        # print("second Nk:", factor.shape, kvec_sel.shape, k_sq_sel.shape, kvec.shape)
+        
+        learnable_factor = nn.Parameter(factor_ones, requires_grad=True)
+
+        return kvec_sel, factor_ones
+
+    def forward_first_version(self, r_raw, box):
+        device = r_raw.device
+
+        r = r_raw / box
+
+        nk  = torch.clamp((box / self.dl).int(), min=1)            
+
+        kx = torch.arange(nk[0] + 1, device=device)
+        ky = torch.arange(-nk[1], nk[1] + 1, device=device)
+        kz = torch.arange(-nk[2], nk[2] + 1, device=device)
+
+        kx, ky, kz = torch.meshgrid(kx, ky, kz, indexing='ij')
+
+        kvec = torch.stack([kx, ky, kz], dim=-1).reshape(-1, 3).to(box.dtype)  
+        recip = self.twopi / box.to(device=device)                   
+        kvec = kvec.to(box.dtype) * recip                                
+
+        ksq  = (kvec ** 2).sum(dim=1)   
+        mask_new = (ksq > 0) & (ksq <= self.k_sq_max)      
+        kvec_sel, ksq_sel = kvec[mask_new], ksq[mask_new]
+
+        print("first Nk:", self.sigma_sq_half, kvec_sel.shape, ksq_sel.shape, kvec.shape)
+        
+        volume = box.prod()      # orthogonal box only    
+        factor = torch.full_like(ksq_sel, self.twopi, dtype=box.dtype)      
+        factor /= volume                                                
+        factor *= torch.exp(-self.sigma_sq_half * ksq_sel) / ksq_sel    
+        
+        print("second Nk:", factor.shape, kvec_sel.shape, ksq_sel.shape, kvec.shape)
 
         return kvec_sel, factor
