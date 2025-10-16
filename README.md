@@ -9,7 +9,7 @@ The central contribution of this work is the mapping of a linear-scaling attenti
 ## Reciprocal Space Attention Architecture
 
 <p align="center">
-  <img width="527" height="242" src="https://github.com/rfhari/reciprocal_space_attention/raw/main/figs/Figure1.png">
+  <img src="https://github.com/rfhari/reciprocal_space_attention/raw/main/figs/Figure1.png">
 </p>
 
 ## Highlights 
