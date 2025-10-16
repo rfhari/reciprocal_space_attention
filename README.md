@@ -1,4 +1,4 @@
-# Reciprocal Space Attention (RSA) for Learning Long-Range Interactions
+# 📣🌟Reciprocal Space Attention (RSA) for Learning Long-Range Interactions
 
 [![arXiv](https://img.shields.io/badge/arXiv-2510.13055-b31b1b.svg)](https://arxiv.org/abs/2510.13055v1)
 
@@ -13,6 +13,7 @@ The central contribution of this work is the mapping of a linear-scaling attenti
 </p>
 
 ## Highlights 
+Graph Neural Networks (GNN) based Machine Learning Potentials struggle with long-range effects, crucial for atomic systems dominated by electrostatics or dispersion, due to oversquashing/oversmoothing or no information flow on disconnected graphs. 
 
 - Inherently encodes interactions across periodic images via Bloch phase factors, going beyond the purely real-space attention approach.
 
