@@ -21,3 +21,7 @@ Graph Neural Networks (GNN) based Machine Learning Potentials struggle with long
 - Captures long-range interactions without relying on local/semi-local observables like atom-centered partial charges or empirical corrections.
 
 - Generalizes across various benchmarks where dispersion, electrostatic, and polar interactions dominate.
+
+## License
+
+The code is published and distributed under the [MIT License](https://opensource.org/license/mit).
