@@ -1,6 +1,7 @@
-# 📣🌟Reciprocal Space Attention (RSA) for Learning Long-Range Interactions
+# 📣🌟Reciprocal Space Attention (RSA) for Learning Long-Range Interactions 
 
-[![arXiv](https://img.shields.io/badge/arXiv-2510.13055-b31b1b.svg)](https://arxiv.org/abs/2510.13055v1)
+[![arXiv](https://img.shields.io/badge/arXiv-2510.13055-b31b1b.svg)](https://arxiv.org/abs/2510.13055v1) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/license/mit)
+
 
 # Abstract
 Machine learning interatomic potentials (MLIPs) have revolutionized the modeling of materials and molecules by directly fitting to \emph{ab initio} data. However, while these models excel at capturing local and semi-local interactions, they often prove insufficient when an explicit and efficient treatment of long-range interactions is required. To address this limitation, we introduce Reciprocal-Space Attention (RSA), a framework designed to capture long-range interactions in the Fourier domain. RSA can be integrated with any existing local or semi-local MLIP framework. 
